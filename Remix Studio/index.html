@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Remix Studio — 多轨音频编辑器</title>
+
+  <!-- MP3 编码库（导出功能） -->
+  <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <span class="brand-led" aria-hidden="true"></span>
+        <h1 class="title">Remix Studio</h1>
+      </div>
+      <p class="subtitle">多轨音频编辑器</p>
+    </header>
+
+    <main class="main">
+      <!-- ====== 主界面：多轨编辑器 ====== -->
+      <section id="studio">
+        <!-- 顶部功能栏（常驻） -->
+        <div id="studio-toolbar" class="studio-toolbar">
+          <button id="btn-undo" class="btn btn-small" type="button" title="撤销上一步（含子界面操作）" disabled>&#x21A9;&#xFE0E; 撤销</button>
+          <button id="btn-redo" class="btn btn-small" type="button" title="恢复被撤销的一步" disabled>&#x21AA;&#xFE0E; 重做</button>
+          <button id="btn-studio-import" class="btn btn-small" type="button">导入音频</button>
+          <button id="btn-toolbar-replay" class="btn btn-small" type="button" title="光标回到开头；正在播放时当前音频从开头重播（不改变播放对象）">从头播放</button>
+          <input type="file" id="studio-file-input" accept=".mp3,audio/mpeg,audio/*" multiple hidden>
+          <span class="toolbar-sep"></span>
+          <button id="btn-tool-mask" class="btn btn-small" type="button">蒙版</button>
+          <button id="btn-tool-splice" class="btn btn-small" type="button">拼接</button>
+          <button id="btn-tool-overlay" class="btn btn-small" type="button">叠加</button>
+          <button id="btn-tool-delete" class="btn btn-small" type="button">删除</button>
+          <span class="toolbar-group">
+            <button id="btn-fit-window" class="btn btn-small" type="button" title="选中的音频各自铺满横条">适应当前窗口</button>
+            <button id="btn-fit-align" class="btn btn-small" type="button" title="所有音频对齐同一时间轴（以最长者为准）">对齐时间轴</button>
+          </span>
+          <button id="btn-select-all" class="btn btn-small" type="button" title="全选（Ctrl+A）">全选</button>
+          <button id="btn-move-up" class="btn btn-small" type="button" title="把选中的音频上移一位">↑ 上移</button>
+          <button id="btn-move-down" class="btn btn-small" type="button" title="把选中的音频下移一位">↓ 下移</button>
+          <span class="toolbar-sep"></span>
+          <button id="btn-tool-hide" class="btn btn-small" type="button" title="把勾选的音频暂时隐藏（不删除），保持主界面干净">隐藏</button>
+          <span class="toolbar-group hide-filter-group" id="hide-filter-group" title="控制主界面显示哪些音频（必须且只能勾选一个）">
+            <label class="hide-filter-item"><input type="checkbox" data-filter="all"><span>所有音频文件</span></label>
+            <label class="hide-filter-item"><input type="checkbox" data-filter="unhidden"><span>未隐藏</span></label>
+            <label class="hide-filter-item"><input type="checkbox" data-filter="hidden"><span>隐藏文件</span></label>
+          </span>
+          <span class="import-bar" id="import-bar" hidden><i></i></span>
+          <span class="studio-import-status" id="studio-import-status"></span>
+        </div>
+
+        <!-- 播放控制（导入音频后显示） -->
+        <div class="studio-controls" id="studio-controls" hidden>
+          <button id="btn-studio-play" class="btn btn-primary" type="button">&#x25B6;&#xFE0E; 播放</button>
+          <button id="btn-back-30" class="btn" type="button" title="后退 30 秒">&#x23EA;&#xFE0E; 30s</button>
+          <button id="btn-back-5" class="btn" type="button" title="后退 5 秒（←）">&#x23EA;&#xFE0E; 5s</button>
+          <button id="btn-fwd-5" class="btn" type="button" title="前进 5 秒（→）">5s &#x23E9;&#xFE0E;</button>
+          <button id="btn-fwd-30" class="btn" type="button" title="前进 30 秒">30s &#x23E9;&#xFE0E;</button>
+          <span class="toolbar-sep"></span>
+          <button id="btn-speed-1" class="btn btn-small active" type="button" title="常速播放">1x</button>
+          <button id="btn-speed-2" class="btn btn-small" type="button" title="2 倍速播放">2x</button>
+          <button id="btn-speed-3" class="btn btn-small" type="button" title="3 倍速播放">3x</button>
+        </div>
+
+        <!-- 轨道区（光标由 playhead-layer 动态渲染，随内容横向滚动） -->
+        <div id="studio-tracks-wrap" class="studio-tracks-wrap">
+          <div id="tracks-container" class="tracks-container">
+            <div id="playhead-layer" class="playhead-layer"></div>
+          </div>
+          <div class="empty-state" id="studio-empty" hidden>
+            <div class="eq-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+            <p class="empty-title">还没有音频</p>
+            <p class="empty-sub">拖入音频文件，或点击上方「导入音频」</p>
+          </div>
+        </div>
+
+        <!-- 选择模式底部栏（仅选择模式出现） -->
+        <div id="studio-select-bar" class="studio-select-bar" hidden>
+          <span id="studio-select-hint"></span>
+          <button id="btn-select-cancel" class="btn" type="button">取消</button>
+          <button id="btn-select-confirm" class="btn btn-primary" type="button">确定</button>
+        </div>
+
+        <!-- 底部导出 -->
+        <div class="studio-export">
+          <button id="btn-studio-export" class="btn btn-primary btn-export" disabled>导出 MP3</button>
+          <p class="splice-export-status" id="studio-export-status"></p>
+        </div>
+      </section>
+
+      <!-- ====== 蒙版子界面 ====== -->
+      <section class="page" id="page-mask" hidden>
+        <div class="page-topbar">
+          <button id="btn-exit-mask" class="btn btn-small" type="button">← 返回</button>
+          <span class="page-crumb">蒙版调音台</span>
+        </div>
+
+        <!-- 当前音频 -->
+        <section class="card mask-files" id="mask-files-card" hidden>
+          <h2 class="section-title">当前音频</h2>
+          <div class="splice-file-list">
+            <div class="splice-file-item">
+              <span class="splice-file-order">1</span>
+              <span class="splice-file-name" id="mask-file-name"></span>
+              <span class="splice-file-dur" id="mask-file-dur"></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- 场景打击垫 -->
+        <section class="presets" id="preset-section">
+          <h2 class="section-title">场景打击垫</h2>
+          <div class="preset-grid" id="preset-grid"></div>
+        </section>
+
+        <!-- 控制台 -->
+        <section class="card playback" id="playback-section" hidden>
+          <h2 class="section-title">控制台</h2>
+
+          <div class="transport">
+            <button id="btn-play" class="btn btn-primary">&#x25B6;&#xFE0E; 播放</button>
+            <button id="btn-pause" class="btn">&#x23F8;&#xFE0E; 暂停</button>
+            <button id="btn-replay" class="btn">&#x21BA;&#xFE0E; 重放</button>
+            <button id="btn-reverse" class="btn" type="button" title="反转音频（再点一次恢复原序）">&#x23EA;&#xFE0E; 倒放</button>
+          </div>
+
+          <div class="progress">
+            <input type="range" id="seek" class="seek" min="0" max="1" step="0.05" value="0">
+            <div class="progress-time">
+              <span id="time-current">00:00</span>
+              <span id="time-total">00:00</span>
+            </div>
+          </div>
+
+          <div class="metro-row">
+            <span class="metro-switch-label">倍速</span>
+            <input type="range" id="mask-speed" class="slider" min="0.5" max="1.5" step="0.01" value="1">
+            <span class="metro-bpm" id="mask-speed-val">1.00x</span>
+            <button id="mask-speed-reset" class="slider-reset" type="button" title="重置倍速" hidden>&#x21BA;&#xFE0E;</button>
+          </div>
+
+          <div class="metro-row">
+            <span class="metro-switch-label">当前 BPM</span>
+            <span class="metro-bpm" id="mask-bpm-label">--</span>
+          </div>
+
+          <div class="metro-row">
+            <label class="metro-switch-label">
+              <input type="checkbox" id="metro-switch">
+              <span>添加节拍器</span>
+            </label>
+            <div class="metro-factor" id="metro-factor-group" hidden>
+              <button class="btn btn-small metro-factor-btn" data-factor="0.5" type="button">减半</button>
+              <button class="btn btn-small metro-factor-btn active" data-factor="1" type="button">原速</button>
+              <button class="btn btn-small metro-factor-btn" data-factor="2" type="button">加倍</button>
+            </div>
+            <span class="metro-bpm" id="metro-bpm-label"></span>
+          </div>
+        </section>
+
+        <!-- 微调控制区 -->
+        <section class="card tweak" id="tweak-section" hidden>
+          <div class="tweak-head">
+            <h2 class="section-title">微调控制</h2>
+            <span class="tweak-preset-name" id="tweak-preset-name"></span>
+          </div>
+
+          <div class="mix-row" id="mix-row">
+            <span class="mix-label">效果强度</span>
+            <input type="range" id="mix-strength" class="slider" min="0" max="1" step="0.01" value="0.5">
+            <span class="mix-value" id="mix-val">50%</span>
+            <button id="mix-reset" class="slider-reset" type="button" title="重置效果强度" hidden>&#x21BA;&#xFE0E;</button>
+          </div>
+
+          <div class="tweak-divider"></div>
+
+          <div class="splice-fade-row" id="mask-fade-row">
+            <span>淡入淡出</span>
+          </div>
+
+          <div class="fade-strip-wrap" id="mask-fade-strip"></div>
+
+          <div class="tweak-group" id="tweak-group"></div>
+        </section>
+
+        <!-- 3D 环绕（HRTF 头部建模，建议佩戴耳机） -->
+        <section class="card surround" id="surround-section" hidden>
+          <div class="surround-head">
+            <h2 class="section-title">3D 环绕</h2>
+            <span class="metro-bpm" id="surround-state">关闭</span>
+          </div>
+          <div class="surround-row">
+            <span class="surround-label">环绕速度</span>
+            <input type="range" id="surround-speed" class="slider" min="0" max="1" step="0.01" value="0">
+            <span class="surround-value" id="surround-speed-val">关闭</span>
+            <button id="surround-speed-reset" class="slider-reset" type="button" title="重置环绕速度" hidden>↺︎</button>
+          </div>
+          <div class="surround-row">
+            <span class="surround-label">环绕范围</span>
+            <input type="range" id="surround-range" class="slider" min="0" max="1" step="0.01" value="0">
+            <span class="surround-value" id="surround-range-val">0%</span>
+            <button id="surround-range-reset" class="slider-reset" type="button" title="重置环绕范围" hidden>↺︎</button>
+          </div>
+          <p class="surround-note">建议佩戴耳机聆听 · 速度或范围为 0 时为普通立体声 · 试听与导出效果一致</p>
+        </section>
+
+        <!-- 保存并继续 -->
+        <section class="export" id="export-section" hidden>
+          <div class="export-actions">
+            <button id="btn-mask-save" class="btn btn-primary btn-export">保存并继续</button>
+          </div>
+        </section>
+      </section>
+
+      <!-- ====== 拼接子界面 ====== -->
+      <section class="page" id="page-splice" hidden>
+        <div class="page-topbar">
+          <button id="btn-exit-splice" class="btn btn-small" type="button">← 返回</button>
+          <span class="page-crumb">剪辑拼接</span>
+        </div>
+
+        <section class="card splice-files" id="splice-files-card" hidden>
+          <h2 class="section-title">音频段落</h2>
+          <div class="splice-file-list" id="splice-file-list"></div>
+        </section>
+
+        <section class="card splice-editor" id="splice-editor" hidden>
+          <div class="splice-editor-head">
+            <h2 class="section-title">衔接设置</h2>
+          </div>
+
+          <div class="splice-timeline" id="splice-timeline">
+            <div class="splice-bar" id="splice-bar-1">
+              <canvas id="splice-wave-1"></canvas>
+              <span class="splice-wave-tag" id="splice-tag-1">第一段 · 结尾 10s</span>
+            </div>
+            <div class="splice-bar" id="splice-bar-2">
+              <canvas id="splice-wave-2"></canvas>
+              <span class="splice-wave-tag" id="splice-tag-2">第二段 · 开头 10s</span>
+            </div>
+            <div class="splice-band" id="splice-band" hidden></div>
+            <div class="splice-handle" id="splice-handle" title="试听光标"><span></span></div>
+          </div>
+
+          <div class="splice-row">
+            <span class="splice-row-label">重叠时长</span>
+            <input type="range" id="splice-overlap" class="slider" min="0" max="10" step="0.1" value="0">
+            <span class="splice-row-value" id="splice-overlap-val">0.0s</span>
+          </div>
+
+          <div class="bpm-align-row">
+            <button id="btn-bpm-align" class="btn btn-small" type="button">自动对齐 BPM</button>
+            <span class="bpm-align-status" id="bpm-align-status"></span>
+          </div>
+
+          <label class="splice-fade-row">
+            <input type="checkbox" id="splice-fade" checked>
+            <span>淡入淡出</span>
+          </label>
+
+          <div class="fade-strip-wrap" id="splice-fade-strip" hidden></div>
+
+          <div class="splice-preview-row">
+            <button id="btn-splice-preview" class="btn" type="button">&#x25B6;&#xFE0E; 试听片段</button>
+            <span class="splice-tip">单击设定试听起点，拖拽选择循环播放范围</span>
+          </div>
+
+          <p class="splice-hint" id="splice-hint"></p>
+        </section>
+
+        <!-- 保存并继续 -->
+        <section class="export" id="splice-export-section" hidden>
+          <div class="export-actions">
+            <button id="btn-splice-save" class="btn btn-primary btn-export">保存并继续</button>
+          </div>
+          <div class="splice-export-bar" id="splice-export-bar" hidden><div id="splice-export-fill" class="splice-export-fill"></div></div>
+          <p class="splice-export-status" id="splice-export-status"></p>
+        </section>
+      </section>
+
+      <!-- ====== 叠加子界面（2 步：框定范围 → 微调叠加） ====== -->
+      <section class="page" id="page-overlay" hidden>
+        <div class="page-topbar">
+          <button id="btn-exit-overlay" class="btn btn-small" type="button">← 返回</button>
+          <span class="page-crumb">叠加</span>
+        </div>
+
+        <!-- 向导头：标题 + 步骤圆点 + 说明 -->
+        <div id="ov-wizard">
+          <h2 id="ov-wizard-title"></h2>
+          <div class="ov-steps" id="ov-step-dots"></div>
+          <p id="ov-wizard-desc" class="ov-wizard-desc"></p>
+        </div>
+
+        <!-- 当前步内容 -->
+        <div id="ov-step-body"></div>
+
+        <div class="ov-stepbar" id="ov-stepbar">
+          <button id="btn-ov-stepplay" class="btn btn-small" type="button">&#x25B6;&#xFE0E; 播放</button>
+          <button id="btn-ov-back" class="btn btn-small" type="button" hidden>← 上一步</button>
+          <span class="splice-tip" id="ov-step-tip"></span>
+          <button id="btn-ov-next" class="btn btn-small btn-primary" type="button">下一步 →</button>
+        </div>
+
+        <!-- 保存并继续 -->
+        <section class="export" id="ov-export-section" hidden>
+          <div class="export-actions">
+            <button id="btn-overlay-save" class="btn btn-primary btn-export">保存并继续</button>
+          </div>
+          <div class="splice-export-bar" id="ov-export-bar" hidden><div id="ov-export-fill" class="splice-export-fill"></div></div>
+          <p class="splice-export-status" id="ov-export-status"></p>
+        </section>
+      </section>
+
+      <!-- 导出选择/确认弹窗 -->
+      <div id="export-modal" class="overlay" hidden>
+        <div class="overlay-box">
+          <div id="export-modal-step1">
+            <p class="overlay-text">选择要导出的音频</p>
+            <div class="export-check-list" id="export-check-list"></div>
+            <div class="modal-actions">
+              <button id="btn-export-cancel" class="btn" type="button">取消</button>
+              <button id="btn-export-next" class="btn btn-primary" type="button">下一步</button>
+            </div>
+          </div>
+          <div id="export-modal-step2" hidden>
+            <p class="overlay-text" id="export-confirm-text">确认导出？</p>
+            <p class="exit-modal-sub">将把所选音频混音为一个文件并下载。</p>
+            <div class="modal-actions">
+              <button id="btn-export-back" class="btn" type="button">返回</button>
+              <button id="btn-export-confirm" class="btn btn-primary" type="button">确认导出</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 保存选择弹窗（替换/保留原音频，三子界面共用） -->
+      <div id="save-modal" class="overlay" hidden>
+        <div class="overlay-box">
+          <p class="overlay-text">处理结果已生成</p>
+          <p class="exit-modal-sub">要替换原来的音频，还是保留原音频并把结果新增为一条？</p>
+          <div class="modal-actions">
+            <button id="btn-save-cancel" class="btn" type="button">取消</button>
+            <button id="btn-save-keep" class="btn" type="button">保留原音频</button>
+            <button id="btn-save-replace" class="btn btn-primary" type="button">替换原音频</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 删除确认弹窗 -->
+      <div id="delete-modal" class="overlay" hidden>
+        <div class="overlay-box">
+          <p class="overlay-text" id="delete-modal-title">确定要删除吗？</p>
+          <p class="exit-modal-sub">删除后无法恢复。</p>
+          <div class="modal-actions">
+            <button id="btn-del-cancel" class="btn" type="button">取消</button>
+            <button id="btn-del-confirm" class="btn btn-primary" type="button">删除</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 退出确认弹窗 -->
+      <div id="exit-modal" class="overlay" hidden>
+        <div class="overlay-box">
+          <p class="overlay-text">当前音频文件尚未保存</p>
+          <p class="exit-modal-sub">确定要退出吗？退出后本次调整将丢失。</p>
+          <div class="modal-actions">
+            <button id="btn-exit-stay" class="btn" type="button">继续编辑</button>
+            <button id="btn-exit-save" class="btn" type="button">保存并退出</button>
+            <button id="btn-exit-leave" class="btn btn-primary" type="button">不保存并退出</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 导出进度遮罩 -->
+      <div id="export-overlay" class="overlay" hidden>
+        <div class="overlay-box">
+          <div class="spinner"></div>
+          <p id="export-status" class="overlay-text">正在渲染…</p>
+          <div class="overlay-bar"><div id="export-fill" class="overlay-fill"></div></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Toast 轻提示 -->
+  <div id="toast" class="toast" hidden aria-live="polite"></div>
+
+  <script src="rain-data.js"></script>
+  <script src="audio-engine.js"></script>
+  <script src="exporter.js"></script>
+  <script src="value-editor.js"></script>
+  <script src="studio.js"></script>
+  <script src="main.js"></script>
+  <script src="splice.js"></script>
+  <script src="overlay.js"></script>
+</body>
+</html>
